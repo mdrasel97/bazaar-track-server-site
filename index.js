@@ -136,6 +136,44 @@ async function run() {
     }
   });
 
+  app.get("/products/home", async (req, res) => {
+    try {
+      const products = await productsCollection
+        .find({})
+        .sort({ createdAt: -1 })
+        .limit(6)
+        .toArray();
+
+      res.status(200).json(products);
+    } catch (err) {
+      console.error("❌ Failed to fetch home products:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/products", async (req, res) => {
+    const { sort, date } = req.query;
+
+    const filter = {};
+    if (date) filter.date = date;
+
+    let sortQuery = {};
+    if (sort === "price-low") sortQuery.pricePerUnit = 1;
+    if (sort === "price-high") sortQuery.pricePerUnit = -1;
+    if (sort === "date-latest") sortQuery.date = -1;
+    if (sort === "date-oldest") sortQuery.date = 1;
+
+    try {
+      const products = await productsCollection
+        .find(filter)
+        .sort(sortQuery)
+        .toArray();
+      res.json(products);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.post("/products", async (req, res) => {
     try {
       const {
