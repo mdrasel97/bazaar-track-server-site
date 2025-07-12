@@ -13,7 +13,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.eyqagy8.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
+const uri = `mongodb+srv://${process.env.MDB_USER}:${process.env.MDB_PASS}@cluster0.eyqagy8.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
@@ -28,6 +28,7 @@ async function run() {
   const db = client.db("bazaar-track");
   const usersCollection = db.collection("users");
   const productsCollection = db.collection("products");
+  const advertisementsCollection = db.collection("advertisements");
 
   //   users related api
   app.get("/users", async (req, res) => {
@@ -79,6 +80,54 @@ async function run() {
     }
   });
 
+  // advertisement related api
+  app.get("/advertisements", async (req, res) => {
+    const { vendorEmail } = req.query;
+    const ads = await advertisementsCollection
+      .find({ vendorEmail })
+      .sort({ createdAt: -1 })
+      .toArray();
+    res.send(ads);
+  });
+  app.post("/advertisements", async (req, res) => {
+    const ad = req.body;
+    const result = await advertisementsCollection.insertOne(ad);
+    res.send(result);
+  });
+
+  app.get("/admin/advertisements", async (req, res) => {
+    const ads = await advertisementsCollection
+      .find({})
+      .sort({ createdAt: -1 })
+      .toArray();
+    res.send(ads);
+  });
+
+  // PATCH
+  app.patch("/advertisements/:id", async (req, res) => {
+    const { id } = req.params;
+    const updateDoc = {
+      $set: {
+        title: req.body.title,
+        description: req.body.description,
+        image: req.body.image,
+      },
+    };
+    const result = await advertisementsCollection.updateOne(
+      { _id: new ObjectId(id) },
+      updateDoc
+    );
+    res.send(result);
+  });
+
+  app.delete("/advertisements/:id", async (req, res) => {
+    const { id } = req.params;
+    const result = await advertisementsCollection.deleteOne({
+      _id: new ObjectId(id),
+    });
+    res.send(result);
+  });
+
   // products related api
   app.get("/products", async (req, res) => {
     try {
@@ -90,6 +139,21 @@ async function run() {
       res.status(200).json(products);
     } catch (err) {
       console.error("❌ Failed to fetch products:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/products/home", async (req, res) => {
+    try {
+      const products = await productsCollection
+        .find({ status: "pending" })
+        .sort({ createdAt: -1 })
+        .limit(8)
+        .toArray();
+      console.log("Fetched products for home:", products);
+      res.status(200).json(products);
+    } catch (err) {
+      console.error("Failed to fetch homepage products:", err.message);
       res.status(500).json({ error: err.message });
     }
   });
@@ -136,42 +200,60 @@ async function run() {
     }
   });
 
-  app.get("/products/home", async (req, res) => {
-    try {
-      const products = await productsCollection
-        .find({})
-        .sort({ createdAt: -1 })
-        .limit(6)
-        .toArray();
+  // app.get("/products/home", async (req, res) => {
+  //   try {
+  //     const products = await productsCollection
+  //       .find({})
+  //       .sort({ createdAt: -1 })
+  //       .limit(6)
+  //       .toArray();
 
-      res.status(200).json(products);
-    } catch (err) {
-      console.error("❌ Failed to fetch home products:", err.message);
-      res.status(500).json({ error: err.message });
-    }
+  //     res.status(200).json(products);
+  //   } catch (err) {
+  //     console.error("❌ Failed to fetch home products:", err.message);
+  //     res.status(500).json({ error: err.message });
+  //   }
+  // });
+
+  // app.get("/products", async (req, res) => {
+  //   const { sort, date } = req.query;
+
+  //   const filter = {};
+  //   if (date) filter.date = date;
+
+  //   let sortQuery = {};
+  //   if (sort === "price-low") sortQuery.pricePerUnit = 1;
+  //   if (sort === "price-high") sortQuery.pricePerUnit = -1;
+  //   if (sort === "date-latest") sortQuery.date = -1;
+  //   if (sort === "date-oldest") sortQuery.date = 1;
+
+  //   try {
+  //     const products = await productsCollection
+  //       .find(filter)
+  //       .sort(sortQuery)
+  //       .toArray();
+  //     res.json(products);
+  //   } catch (err) {
+  //     res.status(500).json({ error: err.message });
+  //   }
+  // });
+
+  // PATCH approve
+  app.patch("/admin/products/:id/approve", async (req, res) => {
+    const result = await productsCollection.updateOne(
+      { _id: new ObjectId(req.params.id) },
+      { $set: { status: "approved" } }
+    );
+    res.send(result);
   });
 
-  app.get("/products", async (req, res) => {
-    const { sort, date } = req.query;
-
-    const filter = {};
-    if (date) filter.date = date;
-
-    let sortQuery = {};
-    if (sort === "price-low") sortQuery.pricePerUnit = 1;
-    if (sort === "price-high") sortQuery.pricePerUnit = -1;
-    if (sort === "date-latest") sortQuery.date = -1;
-    if (sort === "date-oldest") sortQuery.date = 1;
-
-    try {
-      const products = await productsCollection
-        .find(filter)
-        .sort(sortQuery)
-        .toArray();
-      res.json(products);
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
+  // PATCH reject
+  app.patch("/admin/products/:id/reject", async (req, res) => {
+    const result = await productsCollection.updateOne(
+      { _id: new ObjectId(req.params.id) },
+      { $set: { status: "rejected", feedback: req.body.feedback } }
+    );
+    res.send(result);
   });
 
   app.post("/products", async (req, res) => {
