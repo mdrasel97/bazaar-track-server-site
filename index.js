@@ -45,6 +45,22 @@ async function run() {
     }
   });
 
+  app.patch("/users/:id/role", async (req, res) => {
+    const { id } = req.params;
+    const { role } = req.body;
+
+    if (!["admin", "vendor"].includes(role)) {
+      return res.status(400).json({ message: "Invalid role" });
+    }
+
+    const result = await usersCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { role } }
+    );
+
+    res.send(result);
+  });
+
   app.post("/users", async (req, res) => {
     console.log("REQ BODY:", req.body);
     try {
@@ -146,11 +162,11 @@ async function run() {
   app.get("/products/home", async (req, res) => {
     try {
       const products = await productsCollection
-        .find({ status: "pending" })
+        .find({ status: "approved" })
         .sort({ createdAt: -1 })
         .limit(8)
         .toArray();
-      console.log("Fetched products for home:", products);
+      // console.log("Fetched products for home:", products);
       res.status(200).json(products);
     } catch (err) {
       console.error("Failed to fetch homepage products:", err.message);
