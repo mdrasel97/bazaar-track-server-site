@@ -3,6 +3,8 @@ const cors = require("cors");
 const dotenv = require("dotenv");
 const { MongoClient, ServerApiVersion } = require("mongodb");
 const { ObjectId } = require("mongodb");
+const admin = require("firebase-admin");
+const serviceAccount = require("./bazaar-track-admin-key.json");
 const port = process.env.PORT || 5000;
 
 // ENV config
@@ -12,6 +14,11 @@ dotenv.config();
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// firebase admin
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
 
 const uri = `mongodb+srv://${process.env.MDB_USER}:${process.env.MDB_PASS}@cluster0.eyqagy8.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
@@ -30,6 +37,29 @@ async function run() {
   const productsCollection = db.collection("products");
   const advertisementsCollection = db.collection("advertisements");
 
+  // custom middle ware
+  const verifyFBToken = async (req, res, next) => {
+    const authHeader = req.headers.authorization;
+    // console.log(authHeader);
+    if (!authHeader) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const token = authHeader.split(" ")[1];
+    if (!token) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    // verify the token
+    try {
+      const decodedUser = await admin.auth().verifyIdToken(token);
+      req.decodedUser = decodedUser;
+      next();
+    } catch (error) {
+      return res.status(403).json({ message: "forbidden access" });
+    }
+  };
+
   //   users related api
   app.get("/users", async (req, res) => {
     try {
@@ -43,6 +73,17 @@ async function run() {
       console.error("❌ Failed to fetch users:", err.message);
       res.status(500).json({ error: err.message });
     }
+  });
+
+  // GET /users/search?email=someone@example.com
+  app.get("/users/search", async (req, res) => {
+    const email = req.query.email;
+    if (!email) return res.status(400).send("Email required");
+
+    const user = await usersCollection.findOne({ email });
+    if (!user) return res.status(404).send("User not found");
+
+    res.send(user);
   });
 
   app.patch("/users/:id/role", async (req, res) => {
@@ -105,11 +146,6 @@ async function run() {
       .toArray();
     res.send(ads);
   });
-  app.post("/advertisements", async (req, res) => {
-    const ad = req.body;
-    const result = await advertisementsCollection.insertOne(ad);
-    res.send(result);
-  });
 
   app.get("/admin/advertisements", async (req, res) => {
     const ads = await advertisementsCollection
@@ -119,20 +155,37 @@ async function run() {
     res.send(ads);
   });
 
+  app.get("/advertisements/highlights", async (req, res) => {
+    try {
+      const highlights = await advertisementsCollection
+        .find({ status: "approved" }) // শুধু approved ad দেখাবে
+        .sort({ createdAt: -1 }) // latest ads first
+        .limit(10)
+        .toArray();
+
+      res.status(200).json(highlights);
+    } catch (err) {
+      console.error("❌ Failed to fetch ad highlights:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // PATCH
-  app.patch("/advertisements/:id", async (req, res) => {
+  app.patch("/admin/advertisements/:id", async (req, res) => {
     const { id } = req.params;
-    const updateDoc = {
-      $set: {
-        title: req.body.title,
-        description: req.body.description,
-        image: req.body.image,
-      },
-    };
+    const { status } = req.body;
+
     const result = await advertisementsCollection.updateOne(
       { _id: new ObjectId(id) },
-      updateDoc
+      { $set: { status } }
     );
+
+    res.send(result); // result.modifiedCount frontend e pabe
+  });
+
+  app.post("/advertisements", async (req, res) => {
+    const ad = req.body;
+    const result = await advertisementsCollection.insertOne(ad);
     res.send(result);
   });
 
@@ -175,7 +228,7 @@ async function run() {
   });
 
   // get by email for my products
-  app.get("/my-products/:email", async (req, res) => {
+  app.get("/my-products/:email", verifyFBToken, async (req, res) => {
     try {
       const email = req.params.email;
 
