@@ -60,6 +60,27 @@ async function run() {
     }
   };
 
+  const verifyAdmin = async (req, res, next) => {
+    const email = req.decodedUser?.email;
+
+    if (!email) {
+      return res.status(401).send({ message: "Unauthorized: Email missing" });
+    }
+
+    try {
+      const user = await usersCollection.findOne({ email });
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ message: "Forbidden: Admins only" });
+      }
+
+      next(); // Allow access
+    } catch (error) {
+      console.error("❌ Admin verification failed:", err.message);
+      res.status(500).json({ message: "Internal Server Error" });
+    }
+  };
+
   //   users related api
   app.get("/users", async (req, res) => {
     try {
@@ -78,12 +99,54 @@ async function run() {
   // GET /users/search?email=someone@example.com
   app.get("/users/search", async (req, res) => {
     const email = req.query.email;
-    if (!email) return res.status(400).send("Email required");
 
-    const user = await usersCollection.findOne({ email });
-    if (!user) return res.status(404).send("User not found");
+    if (!email) {
+      return res.status(400).json({ error: "Email is required" });
+    }
 
-    res.send(user);
+    try {
+      const users = await usersCollection
+        .find({ email: { $regex: email, $options: "i" } })
+        .toArray();
+
+      res.send(users);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+  // app.get("/users/search", async (req, res) => {
+  //   const email = req.query.email;
+  //   if (!email) return res.status(400).send("Email required");
+
+  //   const user = await usersCollection.findOne({ email });
+  //   if (!user) return res.status(404).send("User not found");
+
+  //   res.send(user);
+  // });
+
+  app.get("/users/role/:email", async (req, res) => {
+    try {
+      const email = req.params.email;
+
+      if (!email) {
+        return res.status(400).json({ message: "Email is required" });
+      }
+
+      const user = await usersCollection.findOne(
+        { email },
+        { projection: { _id: 0, role: 1 } }
+      );
+
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      res.status(200).json({ role: user.role });
+    } catch (error) {
+      console.error("Error fetching role:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
   });
 
   app.patch("/users/:id/role", async (req, res) => {
