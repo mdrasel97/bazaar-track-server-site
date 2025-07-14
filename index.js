@@ -81,6 +81,28 @@ async function run() {
     }
   };
 
+  const verifyVendor = async (req, res, next) => {
+    const email = req.decodedUser?.email;
+
+    if (!email) {
+      return res.status(401).send({ message: "Unauthorized: Email not found" });
+    }
+
+    try {
+      const user = await usersCollection.findOne;
+
+      if (!user || user.role !== "vendor") {
+        return res
+          .status(403)
+          .json({ message: "Forbidden: Vendor access only" });
+      }
+      next(); // Allow access to vendor-only route
+    } catch (err) {
+      console.error("Vendor verification failed:", err.message);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  };
+
   //   users related api
   app.get("/users", async (req, res) => {
     try {
