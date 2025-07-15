@@ -15,6 +15,9 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// stripe payment
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+
 // firebase admin
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
@@ -36,6 +39,8 @@ async function run() {
   const usersCollection = db.collection("users");
   const productsCollection = db.collection("products");
   const advertisementsCollection = db.collection("advertisements");
+  const paymentsCollection = db.collection("payments");
+  // const cartCollection = db.collection("cartCheckOut");
 
   // custom middle ware
   const verifyFBToken = async (req, res, next) => {
@@ -117,7 +122,6 @@ async function run() {
       res.status(500).json({ error: err.message });
     }
   });
-
   // GET /users/search?email=someone@example.com
   app.get("/users/search", async (req, res) => {
     const email = req.query.email;
@@ -222,6 +226,57 @@ async function run() {
     }
   });
 
+  // payment related api
+  app.post("/create-payment-intent", async (req, res) => {
+    const amountInCents = req.body.amountInCents;
+    try {
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amountInCents, // Amount in cents (e.g., $10.00)
+        currency: "usd",
+        payment_method_types: ["card"],
+      });
+
+      // Correct JSON response
+      res.json({ clientSecret: paymentIntent.client_secret });
+    } catch (error) {
+      console.error("Payment Intent Error:", error);
+      res.status(500).json({
+        message: "Failed to create payment intent",
+        error: error.message,
+      });
+    }
+  });
+
+  app.post("/payments", async (req, res) => {
+    try {
+      const paymentInfo = req.body;
+      const result = await paymentsCollection.insertOne(paymentInfo);
+      res.status(200).json({ insertedId: result.insertedId });
+    } catch (error) {
+      console.error("Payment Save Error:", error);
+      res.status(500).json({ error: "Failed to save payment" });
+    }
+  });
+
+  // cart data api
+  // app.post("/cartCheckOut", async (req, res) => {
+  //   const order = req.body;
+  //   if (!order || !order.cartItems || !order.cartItems.length) {
+  //     return res.status(400).json({ message: "Invalid order data" });
+  //   }
+
+  //   try {
+  //     const result = await orderCollection.insertOne(order);
+  //     res
+  //       .status(201)
+  //       .json({ message: "Order saved", insertedId: result.insertedId });
+  //   } catch (err) {
+  //     res
+  //       .status(500)
+  //       .json({ message: "Failed to save order", error: err.message });
+  //   }
+  // });
+
   // advertisement related api
   app.get("/advertisements", async (req, res) => {
     const { vendorEmail } = req.query;
@@ -293,6 +348,20 @@ async function run() {
       res.status(200).json(products);
     } catch (err) {
       console.error("❌ Failed to fetch products:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/products/approved", async (req, res) => {
+    try {
+      const products = await productsCollection
+        .find({ status: "approved" }) // 🔥 Filter only approved products
+        .sort({ createdAt: -1 })
+        .toArray();
+
+      res.status(200).json(products);
+    } catch (err) {
+      console.error("❌ Failed to fetch approved products:", err.message);
       res.status(500).json({ error: err.message });
     }
   });
@@ -421,6 +490,7 @@ async function run() {
         itemName,
         status = "pending",
         productImage,
+        category,
         pricePerUnit,
         prices,
         itemDescription,
@@ -447,6 +517,7 @@ async function run() {
         status,
         productImage,
         pricePerUnit,
+        category,
         prices,
         itemDescription,
         createdAt: new Date(),
