@@ -258,6 +258,36 @@ async function run() {
     }
   });
 
+  app.get("/my-orders", async (req, res) => {
+    const email = req.query.email;
+
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    try {
+      // 1️⃣ Find all payments by this user with status "paid"
+      const payments = await paymentsCollection
+        .find({ userEmail: email, status: "paid" })
+        .toArray();
+
+      // 2️⃣ Extract product IDs from payments
+      const productIds = payments.map(
+        (payment) => new ObjectId(payment.productId)
+      );
+
+      // 3️⃣ Find products from productsCollection
+      const orderedProducts = await productsCollection
+        .find({ _id: { $in: productIds } })
+        .toArray();
+
+      res.status(200).json(orderedProducts);
+    } catch (err) {
+      console.error("❌ Failed to fetch my orders:", err.message);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   // cart data api
   // app.post("/cartCheckOut", async (req, res) => {
   //   const order = req.body;
