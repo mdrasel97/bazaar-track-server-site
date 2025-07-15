@@ -40,6 +40,7 @@ async function run() {
   const productsCollection = db.collection("products");
   const advertisementsCollection = db.collection("advertisements");
   const paymentsCollection = db.collection("payments");
+  const watchListCollection = db.collection("watchList");
   // const cartCollection = db.collection("cartCheckOut");
 
   // custom middle ware
@@ -247,16 +248,22 @@ async function run() {
     }
   });
 
-  app.post("/payments", async (req, res) => {
-    try {
-      const paymentInfo = req.body;
-      const result = await paymentsCollection.insertOne(paymentInfo);
-      res.status(200).json({ insertedId: result.insertedId });
-    } catch (error) {
-      console.error("Payment Save Error:", error);
-      res.status(500).json({ error: "Failed to save payment" });
+  app.get(
+    "/orders",
+    /* verifyToken, verifyAdmin, */ async (req, res) => {
+      try {
+        const orders = await paymentsCollection
+          .find({})
+          .sort({ createdAt: -1 })
+          .toArray();
+
+        res.status(200).json(orders);
+      } catch (err) {
+        console.error("❌ Failed to fetch all orders:", err.message);
+        res.status(500).json({ message: "Internal server error" });
+      }
     }
-  });
+  );
 
   app.get("/my-orders", async (req, res) => {
     const email = req.query.email;
@@ -285,6 +292,17 @@ async function run() {
     } catch (err) {
       console.error("❌ Failed to fetch my orders:", err.message);
       res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.post("/payments", async (req, res) => {
+    try {
+      const paymentInfo = req.body;
+      const result = await paymentsCollection.insertOne(paymentInfo);
+      res.status(200).json({ insertedId: result.insertedId });
+    } catch (error) {
+      console.error("Payment Save Error:", error);
+      res.status(500).json({ error: "Failed to save payment" });
     }
   });
 
@@ -364,6 +382,32 @@ async function run() {
     const result = await advertisementsCollection.deleteOne({
       _id: new ObjectId(id),
     });
+    res.send(result);
+  });
+
+  // manage watch list related api
+  app.get("/watchList", async (req, res) => {
+    const { email } = req.query;
+
+    console.log("email nai", email);
+
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    try {
+      const watchList = await watchListCollection.find({ email }).toArray();
+
+      res.status(200).json(watchList);
+    } catch (error) {
+      console.error("❌ Error fetching watchList:", error);
+      res.status(500).json({ message: "Internal Server Error" });
+    }
+  });
+
+  app.post("/watchList", async (req, res) => {
+    const watchItem = req.body;
+    const result = await watchListCollection.insertOne(watchItem);
     res.send(result);
   });
 
