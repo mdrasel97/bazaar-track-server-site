@@ -1,3 +1,4 @@
 node_modules
 .env
 bazaar-track-admin-key.json
+.vercel
