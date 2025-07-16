@@ -412,14 +412,41 @@ async function run() {
   });
 
   // products related api
+  // app.get("/products", async (req, res) => {
+  //   try {
+  //     const products = await productsCollection
+  //       .find({})
+  //       .sort({ createdAt: -1 })
+  //       .toArray();
+
+  //     res.status(200).json(products);
+  //   } catch (err) {
+  //     console.error("❌ Failed to fetch products:", err.message);
+  //     res.status(500).json({ error: err.message });
+  //   }
+  // });
+
   app.get("/products", async (req, res) => {
     try {
+      const page = parseInt(req.query.page) || 1; // current page
+      const limit = parseInt(req.query.limit) || 5; // item per page
+      const skip = (page - 1) * limit;
+
+      const total = await productsCollection.countDocuments(); // total number of products
+
       const products = await productsCollection
         .find({})
-        .sort({ createdAt: -1 })
+        .sort({ createdAt: -1 }) // optional sorting
+        .skip(skip)
+        .limit(limit)
         .toArray();
 
-      res.status(200).json(products);
+      res.status(200).json({
+        total,
+        page,
+        totalPages: Math.ceil(total / limit),
+        products,
+      });
     } catch (err) {
       console.error("❌ Failed to fetch products:", err.message);
       res.status(500).json({ error: err.message });
