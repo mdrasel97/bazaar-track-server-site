@@ -41,6 +41,7 @@ async function run() {
   const advertisementsCollection = db.collection("advertisements");
   const paymentsCollection = db.collection("payments");
   const watchListCollection = db.collection("watchList");
+  const reviewsCollection = db.collection("reviews");
   // const cartCollection = db.collection("cartCheckOut");
 
   // custom middle ware
@@ -412,21 +413,21 @@ async function run() {
   });
 
   // products related api
-  // app.get("/products", async (req, res) => {
-  //   try {
-  //     const products = await productsCollection
-  //       .find({})
-  //       .sort({ createdAt: -1 })
-  //       .toArray();
-
-  //     res.status(200).json(products);
-  //   } catch (err) {
-  //     console.error("❌ Failed to fetch products:", err.message);
-  //     res.status(500).json({ error: err.message });
-  //   }
-  // });
-
   app.get("/products", async (req, res) => {
+    try {
+      const products = await productsCollection
+        .find({})
+        .sort({ createdAt: -1 })
+        .toArray();
+
+      res.status(200).json(products);
+    } catch (err) {
+      console.error("❌ Failed to fetch products:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/products/pagination", async (req, res) => {
     try {
       const page = parseInt(req.query.page) || 1; // current page
       const limit = parseInt(req.query.limit) || 5; // item per page
@@ -676,6 +677,26 @@ async function run() {
         .status(500)
         .json({ message: "Error deleting parcel", error: error.message });
     }
+  });
+
+  // reviews related api
+  app.post("/reviews", async (req, res) => {
+    try {
+      const review = req.body;
+      const result = await reviewsCollection.insertOne(review);
+      res.send(result);
+    } catch (err) {
+      res.status(500).send({ error: "Failed to post review" });
+    }
+  });
+
+  app.get("/reviews/:productId", async (req, res) => {
+    const productId = req.params.productId;
+    const result = await reviewsCollection
+      .find({ productId })
+      .sort({ date: -1 })
+      .toArray();
+    res.send(result);
   });
 
   try {
