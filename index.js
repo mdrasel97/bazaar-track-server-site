@@ -88,6 +88,8 @@ async function run() {
     }
   };
 
+  //   users related api
+
   const verifyVendor = async (req, res, next) => {
     const email = req.decodedUser?.email;
 
@@ -96,21 +98,21 @@ async function run() {
     }
 
     try {
-      const user = await usersCollection.findOne;
+      const user = await usersCollection.findOne({ email });
 
       if (!user || user.role !== "vendor") {
         return res
           .status(403)
           .json({ message: "Forbidden: Vendor access only" });
       }
-      next(); // Allow access to vendor-only route
+
+      next(); // Access granted
     } catch (err) {
       console.error("Vendor verification failed:", err.message);
       res.status(500).json({ message: "Internal server error" });
     }
   };
 
-  //   users related api
   app.get("/users", async (req, res) => {
     try {
       const users = await usersCollection
@@ -125,33 +127,46 @@ async function run() {
     }
   });
   // GET /users/search?email=someone@example.com
-  app.get("/users/search", async (req, res) => {
-    const email = req.query.email;
+  app.get("/users/search", verifyFBToken, verifyAdmin, async (req, res) => {
+    const { email, name } = req.query;
 
     if (!email) {
       return res.status(400).json({ error: "Email is required" });
     }
+    if (!name) {
+      return res.status(400).json({ error: "Name is required" });
+    }
+
+    const query = {
+      $or: [],
+    };
+
+    if (email) {
+      query.$or.push({ email: { $regex: email, $options: "i" } });
+    }
+
+    if (name) {
+      query.$or.push({ name: { $regex: name, $options: "i" } });
+    }
 
     try {
-      const users = await usersCollection
-        .find({ email: { $regex: email, $options: "i" } })
-        .toArray();
-
+      const users = await usersCollection.find(query).toArray();
       res.send(users);
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: "Internal server error" });
     }
   });
-  // app.get("/users/search", async (req, res) => {
-  //   const email = req.query.email;
-  //   if (!email) return res.status(400).send("Email required");
 
-  //   const user = await usersCollection.findOne({ email });
-  //   if (!user) return res.status(404).send("User not found");
+  app.get("/users/role", async (req, res) => {
+    const email = req.query.email;
+    if (!email) return res.status(400).json({ role: "guest" });
 
-  //   res.send(user);
-  // });
+    const user = await usersCollection.findOne({ email });
+    if (!user) return res.status(404).json({ role: "guest" });
+
+    res.json({ role: user.role });
+  });
 
   app.get("/users/role/:email", async (req, res) => {
     try {
@@ -229,7 +244,7 @@ async function run() {
   });
 
   // payment related api
-  app.post("/create-payment-intent", async (req, res) => {
+  app.post("/create-payment-intent", verifyFBToken, async (req, res) => {
     const amountInCents = req.body.amountInCents;
     try {
       const paymentIntent = await stripe.paymentIntents.create({
@@ -249,22 +264,19 @@ async function run() {
     }
   });
 
-  app.get(
-    "/orders",
-    /* verifyToken, verifyAdmin, */ async (req, res) => {
-      try {
-        const orders = await paymentsCollection
-          .find({})
-          .sort({ createdAt: -1 })
-          .toArray();
+  app.get("/orders", verifyFBToken, verifyAdmin, async (req, res) => {
+    try {
+      const orders = await paymentsCollection
+        .find({})
+        .sort({ createdAt: -1 })
+        .toArray();
 
-        res.status(200).json(orders);
-      } catch (err) {
-        console.error("❌ Failed to fetch all orders:", err.message);
-        res.status(500).json({ message: "Internal server error" });
-      }
+      res.status(200).json(orders);
+    } catch (err) {
+      console.error("❌ Failed to fetch all orders:", err.message);
+      res.status(500).json({ message: "Internal server error" });
     }
-  );
+  });
 
   app.get("/my-orders", async (req, res) => {
     const email = req.query.email;
@@ -327,22 +339,45 @@ async function run() {
   // });
 
   // advertisement related api
-  app.get("/advertisements", async (req, res) => {
-    const { vendorEmail } = req.query;
-    const ads = await advertisementsCollection
-      .find({ vendorEmail })
-      .sort({ createdAt: -1 })
-      .toArray();
-    res.send(ads);
+  // app.get("/advertisements", async (req, res) => {
+  //   const { vendorEmail } = req.query;
+  //   const ads = await advertisementsCollection
+  //     .find({ vendorEmail })
+  //     .sort({ createdAt: -1 })
+  //     .toArray();
+  //   res.send(ads);
+  // });
+
+  app.get("/advertisements", verifyFBToken, verifyVendor, async (req, res) => {
+    try {
+      const { vendorEmail } = req.query;
+
+      const filter = vendorEmail ? { vendorEmail } : {};
+
+      const ads = await advertisementsCollection
+        .find(filter)
+        .sort({ createdAt: -1 })
+        .toArray();
+
+      res.send(ads);
+    } catch (error) {
+      console.error("Error fetching advertisements:", error);
+      res.status(500).send({ message: "Failed to fetch advertisements" });
+    }
   });
 
-  app.get("/admin/advertisements", async (req, res) => {
-    const ads = await advertisementsCollection
-      .find({})
-      .sort({ createdAt: -1 })
-      .toArray();
-    res.send(ads);
-  });
+  app.get(
+    "/admin/advertisements",
+    verifyFBToken,
+    verifyAdmin,
+    async (req, res) => {
+      const ads = await advertisementsCollection
+        .find({})
+        .sort({ createdAt: -1 })
+        .toArray();
+      res.send(ads);
+    }
+  );
 
   app.get("/advertisements/highlights", async (req, res) => {
     try {
@@ -356,6 +391,33 @@ async function run() {
     } catch (err) {
       console.error("❌ Failed to fetch ad highlights:", err.message);
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.patch("/advertisements/:id", async (req, res) => {
+    const id = req.params.id;
+    const { title, description, image } = req.body;
+
+    if (!title || !description || !image) {
+      return res.status(400).json({ message: "All fields are required" });
+    }
+
+    try {
+      const result = await advertisementsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        {
+          $set: {
+            title,
+            description,
+            image,
+          },
+        }
+      );
+
+      res.status(200).json(result);
+    } catch (err) {
+      console.error("❌ Failed to update advertisement:", err.message);
+      res.status(500).json({ message: "Internal server error" });
     }
   });
 
@@ -408,8 +470,39 @@ async function run() {
 
   app.post("/watchList", async (req, res) => {
     const watchItem = req.body;
-    const result = await watchListCollection.insertOne(watchItem);
-    res.send(result);
+
+    try {
+      const result = await watchListCollection.insertOne(watchItem);
+      res.status(201).json(result);
+    } catch (err) {
+      console.error("❌ Failed to add to watchlist:", err.message);
+      res.status(500).json({ error: "Internal Server Error" });
+    }
+  });
+
+  app.delete("/watchList/:id", async (req, res) => {
+    const id = req.params.id;
+
+    try {
+      const result = await watchListCollection.deleteOne({
+        _id: new ObjectId(id),
+      });
+
+      if (result.deletedCount > 0) {
+        res.status(200).json({
+          message: "Successfully removed from",
+          deletedCount: result.deletedCount,
+        });
+      } else {
+        res.status(404).json({
+          message: "Item not found in watchList",
+          deletedCount: 0,
+        });
+      }
+    } catch (err) {
+      console.error("❌ Failed to delete watchList item:", err.message);
+      res.status(500).json({ message: "Internal server error" });
+    }
   });
 
   // products related api
@@ -427,34 +520,39 @@ async function run() {
     }
   });
 
-  app.get("/products/pagination", async (req, res) => {
-    try {
-      const page = parseInt(req.query.page) || 1; // current page
-      const limit = parseInt(req.query.limit) || 5; // item per page
-      const skip = (page - 1) * limit;
+  app.get(
+    "/products/pagination",
+    verifyFBToken,
+    verifyAdmin,
+    async (req, res) => {
+      try {
+        const page = parseInt(req.query.page) || 1; // current page
+        const limit = parseInt(req.query.limit) || 5; // item per page
+        const skip = (page - 1) * limit;
 
-      const total = await productsCollection.countDocuments(); // total number of products
+        const total = await productsCollection.countDocuments(); // total number of products
 
-      const products = await productsCollection
-        .find({})
-        .sort({ createdAt: -1 }) // optional sorting
-        .skip(skip)
-        .limit(limit)
-        .toArray();
+        const products = await productsCollection
+          .find({})
+          .sort({ createdAt: -1 }) // optional sorting
+          .skip(skip)
+          .limit(limit)
+          .toArray();
 
-      res.status(200).json({
-        total,
-        page,
-        totalPages: Math.ceil(total / limit),
-        products,
-      });
-    } catch (err) {
-      console.error("❌ Failed to fetch products:", err.message);
-      res.status(500).json({ error: err.message });
+        res.status(200).json({
+          total,
+          page,
+          totalPages: Math.ceil(total / limit),
+          products,
+        });
+      } catch (err) {
+        console.error("❌ Failed to fetch products:", err.message);
+        res.status(500).json({ error: err.message });
+      }
     }
-  });
+  );
 
-  app.get("/products/approved", async (req, res) => {
+  app.get("/products/approved/trends", async (req, res) => {
     try {
       const products = await productsCollection
         .find({ status: "approved" }) // 🔥 Filter only approved products
@@ -464,6 +562,44 @@ async function run() {
       res.status(200).json(products);
     } catch (err) {
       console.error("❌ Failed to fetch approved products:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ✅ GET /products/approved
+
+  app.get("/products/approved", async (req, res) => {
+    try {
+      const page = parseInt(req.query.page) || 1;
+      const limit = 20;
+      const skip = (page - 1) * limit;
+
+      const sortKey = req.query.sort || "createdAt";
+      const order = req.query.order === "asc" ? 1 : -1;
+
+      const filter = { status: "approved" };
+
+      // Optional: date filter
+      if (req.query.date) {
+        filter.date = req.query.date; // must be "YYYY-MM-DD"
+      }
+
+      const total = await productsCollection.countDocuments(filter);
+      const products = await productsCollection
+        .find(filter)
+        .sort({ [sortKey]: order }) // ✅ Sort by key & order
+        .skip(skip) // ✅ Pagination start
+        .limit(limit) // ✅ Page size
+        .toArray();
+
+      res.status(200).json({
+        total,
+        page,
+        pageSize: limit,
+        totalPages: Math.ceil(total / limit),
+        products,
+      });
+    } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
@@ -484,25 +620,30 @@ async function run() {
   });
 
   // get by email for my products
-  app.get("/my-products/:email", verifyFBToken, async (req, res) => {
-    try {
-      const email = req.params.email;
+  app.get(
+    "/my-products/:email",
+    verifyFBToken,
+    verifyVendor,
+    async (req, res) => {
+      try {
+        const email = req.params.email;
 
-      if (!email) {
-        return res.status(400).json({ message: "Email is required" });
+        if (!email) {
+          return res.status(400).json({ message: "Email is required" });
+        }
+
+        const products = await productsCollection
+          .find({ vendorEmail: email })
+          .sort({ createdAt: -1 })
+          .toArray();
+
+        res.status(200).json(products);
+      } catch (err) {
+        console.error("❌ Failed to fetch vendor products:", err.message);
+        res.status(500).json({ error: err.message });
       }
-
-      const products = await productsCollection
-        .find({ vendorEmail: email })
-        .sort({ createdAt: -1 })
-        .toArray();
-
-      res.status(200).json(products);
-    } catch (err) {
-      console.error("❌ Failed to fetch vendor products:", err.message);
-      res.status(500).json({ error: err.message });
     }
-  });
+  );
 
   app.get("/products/:id", async (req, res) => {
     const { id } = req.params;
