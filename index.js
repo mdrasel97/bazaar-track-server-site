@@ -278,7 +278,7 @@ async function run() {
     }
   });
 
-  app.get("/my-orders", async (req, res) => {
+  app.get("/my-orders", verifyFBToken, async (req, res) => {
     const email = req.query.email;
 
     if (!email) {
