@@ -451,7 +451,6 @@ async function run() {
   // manage watch list related api
   app.get("/watchList", async (req, res) => {
     const { email } = req.query;
-
     console.log("email nai", email);
 
     if (!email) {
@@ -517,6 +516,37 @@ async function run() {
     } catch (err) {
       console.error("❌ Failed to fetch products:", err.message);
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/products/status", async (req, res) => {
+    try {
+      const allProducts = await productsCollection
+        .find({}, { projection: { status: 1 } })
+        .toArray();
+
+      const statusCount = {
+        approved: 0,
+        pending: 0,
+
+        // deliverable: 0,
+        // undeliverable: 0,
+        // risky: 0,
+        // unknown: 0,
+        // duplicate: 0,
+      };
+
+      allProducts.forEach((product) => {
+        const status = product.status?.toLowerCase();
+        if (status && statusCount.hasOwnProperty(status)) {
+          statusCount[status]++;
+        }
+      });
+
+      res.status(200).json(statusCount);
+    } catch (error) {
+      console.error("Failed to get product status count:", error);
+      res.status(500).json({ message: "Server Error" });
     }
   });
 
