@@ -5,6 +5,7 @@ const { MongoClient, ServerApiVersion } = require("mongodb");
 const { ObjectId } = require("mongodb");
 const admin = require("firebase-admin");
 const serviceAccount = require("./bazaar-track-admin-key.json");
+const OpenAI = require("openai");
 const port = process.env.PORT || 5000;
 
 // ENV config
@@ -14,6 +15,19 @@ dotenv.config();
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// ai api
+const clients = {
+  gemini: new OpenAI({
+    apiKey: process.env.GEMINI_API_KEY,
+    baseURL: "https://generativelanguage.googleapis.com/v1beta/",
+  }),
+};
+
+// model map
+const modelMap = {
+  gemini: "gemini-1.5-flash",
+};
 
 // stripe payment
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
@@ -88,8 +102,6 @@ async function run() {
     }
   };
 
-  //   users related api
-
   const verifyVendor = async (req, res, next) => {
     const email = req.decodedUser?.email;
 
@@ -113,6 +125,30 @@ async function run() {
     }
   };
 
+  // ai related api
+
+  app.post("/api/chat", async (req, res) => {
+    const { model, messages } = req.body;
+
+    if (!model || !clients[model]) {
+      return res.status(400).send({ error: "Invalid or unsupported model." });
+    }
+
+    try {
+      const client = clients[model];
+      const response = await client.chat.completions.create({
+        model: modelMap[model],
+        messages: messages,
+      });
+
+      return res.send(response);
+    } catch (error) {
+      console.error(`${model.toUpperCase()} API Error:`, error.message);
+      return res.status(500).send({ error: "AI response failed." });
+    }
+  });
+
+  //   users related api
   app.get("/users", async (req, res) => {
     try {
       const users = await usersCollection
